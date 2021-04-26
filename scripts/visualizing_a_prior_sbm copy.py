@@ -1,7 +1,7 @@
 #%%
 cd '/Users/TingshanLiu/Desktop/2020 summer/TL_maggot/maggot_connectome/'
 #%%
-from pkg.data import load_maggot_graph
+from pkg.data import load_maggot_graph, load_data
 from joblib import Parallel, delayed
 import numpy as np
 import matplotlib as mpl
@@ -162,7 +162,7 @@ def plot_connectivity(coln, cls, block_pairs, B, p_val, pos, Bs, factor=1.5, cor
     #     ax.text(15, -23+i, es[i]+': '+str(ns[i]), color=c[i], fontsize=13, ha='left')
     # ax.text(15,-24, 'tie'+': '+str(ns[-1]), c='k', ha='left', fontsize=13)
     # plt.show()
-    # plt.savefig('connectivity-hemi_130', transparent=False, facecolor='white', bbox_inches = "tight", dpi=300)
+    plt.savefig('connectivity-hemi_norm', transparent=False, facecolor='white', bbox_inches = "tight", dpi=300)
 
 def _calculate_block_p_wei(graph, block_inds, block_vert_inds, return_counts=False):
     n_blocks = len(block_inds)
@@ -289,20 +289,55 @@ meta.loc[meta['hemisphere']=='R', 'hemi-class_4'] = meta['class_4'] + n
 
 #%%[markdown]
 # ### fit an SBM for each category and test significance on the B_ij's
-adj_norm = normalize(adj, axis=1, norm='l1')
+
+#%%
+# # normalize by sum of axon_input & dendrite_input to get the sum graph
+# adj_norm = np.zeros(adj.shape)
+# for i in range(len(adj)):
+#     a_input = meta.iloc[i]['axon_input']
+#     d_input = meta.iloc[i]['dendrite_input']
+#     if a_input + d_input != 0:
+#         adj_norm[:,i] = adj[:,i] / (a_input + d_input)
+
+#%%
+# normalize each graph type separately by axon/dendrite input
+edge_types = ['aa','ad','da','dd']
+adjs = []
+for e in edge_types:
+    adjs.append(mg.to_edge_type_graph(e).adj)
+
+adjs_norm = []
+for i in range(4):
+    adjs_norm.append(np.zeros(adj.shape))
+
+for i in range(len(adj)):
+    a_input = meta.iloc[i]['axon_input']
+    d_input = meta.iloc[i]['dendrite_input']
+    if a_input != 0:
+        adjs_norm[0][:,i] = adjs[0][:,i] / a_input
+        adjs_norm[2][:,i] = adjs[2][:,i] / a_input
+    
+    if d_input != 0:
+        adjs_norm[1][:,i] = adjs[1][:,i] / d_input
+        adjs_norm[3][:,i] = adjs[3][:,i] / d_input
+
+adjs_sum_norm = np.sum(adjs_norm, axis=0)
+adjs_sum_norm = normalize(adjs_sum_norm, axis=0, norm='l1')
+
 
 #%%[markdown]
 # #### try to incorporate the edge weights
 # in the weighted version, each $B_ij =$ sum of edge weights / no. possible edges
 # for significance test, currently using one-sided z-test
 #%%
+input_adj = adjs_sum_norm.copy()
 block_p, p_mat = weighted_sbm(
-    adj_norm, y=meta['hemi-class_4'].values
+    input_adj, y=meta['hemi-class_4'].values
 )
 
 #%%
 p_val_bootstrap, block_pairs = compute_block_sig_wei(
-    block_p, adj_norm, meta['hemi-class_4'].values, 500
+    block_p, input_adj, meta['hemi-class_4'].values, 500
 )
 
 #%%
